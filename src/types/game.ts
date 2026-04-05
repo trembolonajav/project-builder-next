@@ -45,10 +45,22 @@ export interface Enemy {
   description: string;
 }
 
+export interface CombatState {
+  enemy: Enemy & { image: string };
+  enemyHp: number;
+  isDefending: boolean;
+  heavyAttackUses: number;
+  log: string[];
+  goldEarned: number;
+  xpEarned: number;
+  lootEarned: LootItem | null;
+}
+
 export type GameScreen = 'title' | 'village' | 'shop' | 'inventory' | 'region' | 'combat' | 'victory' | 'defeat';
 
 export interface GameState {
   screen: GameScreen;
   player: PlayerState;
   hasSave: boolean;
+  combat: CombatState | null;
 }
