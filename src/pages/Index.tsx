@@ -1,6 +1,10 @@
 import { GameProvider, useGame } from '@/contexts/GameContext';
 import TitleScreen from '@/components/game/TitleScreen';
 import VillageScreen from '@/components/game/VillageScreen';
+import RegionScreen from '@/components/game/RegionScreen';
+import CombatScreen from '@/components/game/CombatScreen';
+import VictoryScreen from '@/components/game/VictoryScreen';
+import DefeatScreen from '@/components/game/DefeatScreen';
 
 const GameRouter = () => {
   const { state } = useGame();
@@ -10,13 +14,16 @@ const GameRouter = () => {
       return <TitleScreen />;
     case 'village':
       return <VillageScreen />;
+    case 'region':
+      return <RegionScreen />;
+    case 'combat':
+      return <CombatScreen />;
+    case 'victory':
+      return <VictoryScreen />;
+    case 'defeat':
+      return <DefeatScreen />;
     case 'shop':
     case 'inventory':
-    case 'region':
-    case 'combat':
-    case 'victory':
-    case 'defeat':
-      // Placeholder — voltam para a vila por enquanto
       return <VillageScreen />;
     default:
       return <TitleScreen />;
