@@ -1,17 +1,42 @@
 import { useGame } from '@/contexts/GameContext';
 import { Sword, Shield, Zap, Heart, Wind, Coins } from 'lucide-react';
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 const CombatScreen = () => {
   const { state, combatAttack, combatDefend, combatHeavyAttack, combatPotion, combatFlee, totalAttack, totalDefense } = useGame();
   const { player, combat } = state;
   const logRef = useRef<HTMLDivElement>(null);
+  const [shaking, setShaking] = useState(false);
+  const [enemyFlash, setEnemyFlash] = useState(false);
+  const prevPlayerHp = useRef(player.hp);
+  const prevEnemyHp = useRef(combat?.enemyHp ?? 0);
 
   useEffect(() => {
     if (logRef.current) {
       logRef.current.scrollTop = logRef.current.scrollHeight;
     }
   }, [combat?.log]);
+
+  // Shake when player takes damage
+  useEffect(() => {
+    if (player.hp < prevPlayerHp.current) {
+      setShaking(true);
+      const t = setTimeout(() => setShaking(false), 400);
+      return () => clearTimeout(t);
+    }
+    prevPlayerHp.current = player.hp;
+  }, [player.hp]);
+
+  // Flash when enemy takes damage
+  useEffect(() => {
+    if (combat && combat.enemyHp < prevEnemyHp.current) {
+      setEnemyFlash(true);
+      const t = setTimeout(() => setEnemyFlash(false), 300);
+      prevEnemyHp.current = combat.enemyHp;
+      return () => clearTimeout(t);
+    }
+    if (combat) prevEnemyHp.current = combat.enemyHp;
+  }, [combat?.enemyHp]);
 
   if (!combat) return null;
 
@@ -22,7 +47,7 @@ const CombatScreen = () => {
   const typeColor = combat.enemy.type === 'common' ? 'text-muted-foreground' : combat.enemy.type === 'elite' ? 'text-accent' : 'text-gold';
 
   return (
-    <div className="flex flex-col min-h-screen bg-background relative overflow-hidden">
+    <div className={`flex flex-col min-h-screen bg-background relative overflow-hidden animate-slide-up ${shaking ? 'animate-shake' : ''}`}>
       <div className="absolute inset-0 retro-scanline pointer-events-none z-10" />
 
       {/* Enemy Section */}
@@ -42,8 +67,15 @@ const CombatScreen = () => {
             }} />
           </div>
 
-          <div className="flex justify-center mt-3">
-            <img src={combat.enemy.image} alt={combat.enemy.name} className="w-24 h-24 md:w-32 md:h-32 object-contain" />
+          <div className="flex justify-center mt-3 relative">
+            <img
+              src={combat.enemy.image}
+              alt={combat.enemy.name}
+              className={`w-24 h-24 md:w-32 md:h-32 object-contain transition-all duration-200 ${enemyFlash ? 'animate-flash-red' : ''}`}
+            />
+            {enemyFlash && (
+              <div className="absolute inset-0 bg-primary/20 animate-flash-white rounded-lg" />
+            )}
           </div>
         </div>
       </div>
@@ -52,7 +84,7 @@ const CombatScreen = () => {
       <div ref={logRef} className="flex-1 overflow-y-auto p-4 max-w-lg mx-auto w-full z-20">
         <div className="space-y-1">
           {combat.log.map((msg, i) => (
-            <p key={i} className="font-retro text-base text-foreground/80">
+            <p key={i} className="font-retro text-base text-foreground/80 animate-slide-down" style={{ animationDelay: `${Math.max(0, (i - combat.log.length + 3)) * 50}ms` }}>
               {'>'} {msg}
             </p>
           ))}
@@ -143,6 +175,7 @@ const CombatButton = ({ icon, label, onClick, disabled = false, variant = 'defau
       className={`
         flex flex-col items-center gap-1 py-3 px-2 pixel-border bg-card 
         transition-all duration-200 disabled:opacity-30 disabled:cursor-not-allowed
+        active:scale-95
         ${variantClasses[variant]}
       `}
     >

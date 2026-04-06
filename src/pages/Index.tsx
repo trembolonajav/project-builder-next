@@ -5,6 +5,8 @@ import RegionScreen from '@/components/game/RegionScreen';
 import CombatScreen from '@/components/game/CombatScreen';
 import VictoryScreen from '@/components/game/VictoryScreen';
 import DefeatScreen from '@/components/game/DefeatScreen';
+import ShopScreen from '@/components/game/ShopScreen';
+import InventoryScreen from '@/components/game/InventoryScreen';
 
 const GameRouter = () => {
   const { state } = useGame();
@@ -23,8 +25,9 @@ const GameRouter = () => {
     case 'defeat':
       return <DefeatScreen />;
     case 'shop':
+      return <ShopScreen />;
     case 'inventory':
-      return <VillageScreen />;
+      return <InventoryScreen />;
     default:
       return <TitleScreen />;
   }
