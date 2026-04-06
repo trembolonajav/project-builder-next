@@ -1,5 +1,5 @@
 import { useGame } from '@/contexts/GameContext';
-import { ArrowLeft, Coins, Sword, ShieldCheck, Shield, Package, Trash2 } from 'lucide-react';
+import { ArrowLeft, Coins, Sword, ShieldCheck, Shield, Package } from 'lucide-react';
 import { Equipment, LootItem } from '@/types/game';
 
 const InventoryScreen = () => {
@@ -13,9 +13,7 @@ const InventoryScreen = () => {
     if (item.type === 'weapon') updates.equippedWeapon = item;
     else if (item.type === 'armor') updates.equippedArmor = item;
     else if (item.type === 'shield') updates.equippedShield = item;
-    // Remove from inventory
     updates.inventory = player.inventory.filter(i => i.id !== item.id);
-    // Put old equipped item back if it has price > 0
     const oldItem = item.type === 'weapon' ? player.equippedWeapon : item.type === 'armor' ? player.equippedArmor : player.equippedShield;
     if (oldItem.price > 0) {
       updates.inventory = [...(updates.inventory || player.inventory), oldItem];
@@ -33,12 +31,6 @@ const InventoryScreen = () => {
 
   const lootItems = player.inventory.filter(i => !isEquipment(i));
   const equipItems = player.inventory.filter(i => isEquipment(i)) as Equipment[];
-
-  const typeIcon = (type: string) => {
-    if (type === 'weapon') return <Sword className="w-3 h-3 text-accent" />;
-    if (type === 'armor') return <ShieldCheck className="w-3 h-3 text-xp-blue" />;
-    return <Shield className="w-3 h-3 text-xp-blue" />;
-  };
 
   return (
     <div className="flex flex-col min-h-screen bg-background relative overflow-hidden animate-slide-up">
@@ -79,8 +71,10 @@ const InventoryScreen = () => {
               <div className="space-y-2">
                 {equipItems.map(item => (
                   <div key={item.id} className="flex items-center justify-between p-3 pixel-border bg-card">
-                    <div className="flex items-center gap-2 flex-1 min-w-0">
-                      {typeIcon(item.type)}
+                    <div className="flex items-center gap-3 flex-1 min-w-0">
+                      {item.image && (
+                        <img src={item.image} alt={item.name} className="w-9 h-9 object-contain pixelated" loading="lazy" />
+                      )}
                       <div className="min-w-0">
                         <span className="font-pixel text-[10px] text-foreground block">{item.name}</span>
                         <span className="font-retro text-sm text-accent">+{item.bonus} {item.type === 'weapon' ? 'ATK' : 'DEF'}</span>
@@ -135,8 +129,10 @@ const InventoryScreen = () => {
 
 const EquippedSlot = ({ label, item, stat, icon }: { label: string; item: Equipment; stat: string; icon: React.ReactNode }) => (
   <div className="flex items-center justify-between p-3 pixel-border bg-card border-primary/30">
-    <div className="flex items-center gap-2">
-      {icon}
+    <div className="flex items-center gap-3">
+      {item.image && (
+        <img src={item.image} alt={item.name} className="w-9 h-9 object-contain pixelated" loading="lazy" />
+      )}
       <div>
         <span className="font-pixel text-[8px] text-muted-foreground block">{label}</span>
         <span className="font-pixel text-[10px] text-foreground">{item.name}</span>

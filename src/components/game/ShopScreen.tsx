@@ -1,6 +1,6 @@
 import { useGame } from '@/contexts/GameContext';
 import { ArrowLeft, Coins, Sword, Shield, ShieldCheck, Heart } from 'lucide-react';
-import { WEAPONS, ARMORS, SHIELDS, POTION_PRICE, POTION_HEAL } from '@/data/items';
+import { WEAPONS, ARMORS, SHIELDS, POTION_PRICE, POTION_HEAL, POTION_IMAGE } from '@/data/items';
 import { Equipment } from '@/types/game';
 
 const ShopScreen = () => {
@@ -67,9 +67,12 @@ const ShopScreen = () => {
 
           <ShopSection title="🧪 CONSUMÍVEIS" icon={<Heart className="w-4 h-4 text-hp-green" />}>
             <div className="flex items-center justify-between p-3 pixel-border bg-card">
-              <div className="flex-1">
-                <span className="font-pixel text-[10px] text-foreground block">Poção de Vida</span>
-                <span className="font-retro text-sm text-muted-foreground">Recupera {POTION_HEAL} HP</span>
+              <div className="flex items-center gap-3 flex-1">
+                <img src={POTION_IMAGE} alt="Poção de Vida" className="w-10 h-10 object-contain pixelated" loading="lazy" />
+                <div>
+                  <span className="font-pixel text-[10px] text-foreground block">Poção de Vida</span>
+                  <span className="font-retro text-sm text-muted-foreground">Recupera {POTION_HEAL} HP</span>
+                </div>
               </div>
               <div className="flex items-center gap-3">
                 <span className="font-retro text-sm text-muted-foreground">Tem: {player.potions}</span>
@@ -109,13 +112,18 @@ const ShopItem = ({ item, owned, canAfford, onBuy, statLabel }: {
   item: Equipment; owned: boolean; canAfford: boolean; onBuy: () => void; statLabel: string;
 }) => (
   <div className={`flex items-center justify-between p-3 pixel-border bg-card ${owned ? 'border-hp-green/50' : ''}`}>
-    <div className="flex-1 min-w-0">
-      <div className="flex items-center gap-2">
-        <span className="font-pixel text-[10px] text-foreground">{item.name}</span>
-        {owned && <span className="font-pixel text-[8px] text-hp-green">EQUIPADO</span>}
+    <div className="flex items-center gap-3 flex-1 min-w-0">
+      {item.image && (
+        <img src={item.image} alt={item.name} className="w-10 h-10 object-contain pixelated" loading="lazy" />
+      )}
+      <div className="min-w-0">
+        <div className="flex items-center gap-2">
+          <span className="font-pixel text-[10px] text-foreground">{item.name}</span>
+          {owned && <span className="font-pixel text-[8px] text-hp-green">EQUIPADO</span>}
+        </div>
+        <span className="font-retro text-sm text-muted-foreground block truncate">{item.description}</span>
+        <span className="font-retro text-sm text-accent">{statLabel}</span>
       </div>
-      <span className="font-retro text-sm text-muted-foreground block truncate">{item.description}</span>
-      <span className="font-retro text-sm text-accent">{statLabel}</span>
     </div>
     {!owned && (
       <button

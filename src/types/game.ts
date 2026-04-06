@@ -5,6 +5,7 @@ export interface Equipment {
   bonus: number;
   price: number;
   description: string;
+  image?: string;
 }
 
 export interface LootItem {
@@ -40,8 +41,8 @@ export interface Enemy {
   attack: number;
   defense: number;
   xpReward: number;
-  goldReward: [number, number]; // min, max
-  fleeChance: number; // 0 to 1
+  goldReward: [number, number];
+  fleeChance: number;
   description: string;
 }
 
