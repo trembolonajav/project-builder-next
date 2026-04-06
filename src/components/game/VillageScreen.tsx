@@ -1,5 +1,6 @@
 import { useGame } from '@/contexts/GameContext';
 import { Sword, ShieldCheck, Package, Store, MapPin, Heart, Coins } from 'lucide-react';
+import villageBg from '@/assets/village-bg.jpg';
 
 const VillageScreen = () => {
   const { state, navigate, totalAttack, totalDefense } = useGame();
@@ -13,7 +14,7 @@ const VillageScreen = () => {
       <div className="absolute inset-0 retro-scanline pointer-events-none z-10" />
 
       {/* Header - Player Status */}
-      <header className="p-4 border-b-2 border-primary/30 bg-card/80">
+      <header className="p-4 border-b-2 border-primary/30 bg-card/90 backdrop-blur-sm relative z-20">
         <div className="max-w-lg mx-auto">
           <div className="flex items-center justify-between mb-3">
             <div className="flex items-center gap-2">
@@ -58,43 +59,55 @@ const VillageScreen = () => {
         </div>
       </header>
 
-      {/* Village Content */}
-      <main className="flex-1 flex flex-col items-center justify-center p-6 z-20">
-        {/* Village title */}
-        <div className="text-center mb-8">
-          <h2 className="font-pixel text-lg text-primary mb-2">⛏ VILA</h2>
-          <p className="font-retro text-lg text-muted-foreground max-w-sm">
-            O fogo da fogueira crepita. O vento traz o cheiro de ferro e pão quente.
-            Você está seguro... por enquanto.
-          </p>
+      {/* Village Content with background */}
+      <main className="flex-1 flex flex-col items-center justify-center relative z-20">
+        {/* Village background image */}
+        <div className="absolute inset-0 z-0">
+          <img
+            src={villageBg}
+            alt="Vila medieval"
+            className="w-full h-full object-cover opacity-40"
+          />
+          <div className="absolute inset-0 bg-gradient-to-t from-background via-background/60 to-background/30" />
         </div>
 
-        {/* Action Buttons */}
-        <div className="flex flex-col gap-4 w-full max-w-xs">
-          <VillageButton
-            icon={<MapPin className="w-5 h-5" />}
-            label="AVENTURA"
-            sublabel="Estrada Velha"
-            onClick={() => navigate('region')}
-            variant="primary"
-          />
-          <VillageButton
-            icon={<Store className="w-5 h-5" />}
-            label="MERCADOR"
-            sublabel="Comprar & Vender"
-            onClick={() => navigate('shop')}
-          />
-          <VillageButton
-            icon={<Package className="w-5 h-5" />}
-            label="INVENTÁRIO"
-            sublabel="Equipamento & Itens"
-            onClick={() => navigate('inventory')}
-          />
+        <div className="relative z-10 p-6 w-full flex flex-col items-center">
+          {/* Village title */}
+          <div className="text-center mb-8">
+            <h2 className="font-pixel text-lg text-primary mb-2">⛏ VILA</h2>
+            <p className="font-retro text-lg text-muted-foreground max-w-sm">
+              O fogo da fogueira crepita. O vento traz o cheiro de ferro e pão quente.
+              Você está seguro... por enquanto.
+            </p>
+          </div>
+
+          {/* Action Buttons */}
+          <div className="flex flex-col gap-4 w-full max-w-xs">
+            <VillageButton
+              icon={<MapPin className="w-5 h-5" />}
+              label="AVENTURA"
+              sublabel="Estrada Velha"
+              onClick={() => navigate('region')}
+              variant="primary"
+            />
+            <VillageButton
+              icon={<Store className="w-5 h-5" />}
+              label="MERCADOR"
+              sublabel="Comprar & Vender"
+              onClick={() => navigate('shop')}
+            />
+            <VillageButton
+              icon={<Package className="w-5 h-5" />}
+              label="INVENTÁRIO"
+              sublabel="Equipamento & Itens"
+              onClick={() => navigate('inventory')}
+            />
+          </div>
         </div>
       </main>
 
       {/* Footer */}
-      <footer className="p-3 border-t border-border/50 text-center">
+      <footer className="p-3 border-t border-border/50 text-center relative z-20 bg-background/80 backdrop-blur-sm">
         <p className="font-retro text-xs text-muted-foreground/50">
           XP: {player.xp}/{player.xpToNext} até o próximo nível
         </p>
@@ -115,7 +128,7 @@ const VillageButton = ({ icon, label, sublabel, onClick, variant = 'default' }: 
   <button
     onClick={onClick}
     className={`
-      flex items-center gap-4 w-full px-5 py-4 pixel-border bg-card 
+      flex items-center gap-4 w-full px-5 py-4 pixel-border bg-card/90 backdrop-blur-sm
       hover:bg-muted transition-all duration-200 group text-left
       ${variant === 'primary' ? 'border-accent/50 hover:border-accent' : ''}
     `}
