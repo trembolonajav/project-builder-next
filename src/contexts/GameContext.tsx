@@ -1,10 +1,27 @@
-import React, { createContext, useContext, useState, useCallback, useEffect } from 'react';
-import { GameState, GameScreen, PlayerState, CombatState, LootItem } from '@/types/game';
-import { WEAPONS, ARMORS, SHIELDS, POTION_HEAL } from '@/data/items';
+import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
+import {
+  CombatState,
+  Enemy,
+  GameScreen,
+  GameState,
+  LootItem,
+  MechanicState,
+  PlayerState,
+  RegionProgress,
+} from '@/types/game';
+import { ARMORS, POTION_HEAL, SHIELDS, WEAPONS } from '@/data/items';
 import { ENEMIES, EnemyData } from '@/data/enemies';
 import { LOOT_TABLE } from '@/data/loot';
 
 const SAVE_KEY = 'iron-oath-save';
+const ALPHA_ID = 'e5';
+const TROLL_ID = 'e7';
+const CAPTAIN_ID = 'e6';
+const CAMPAIGN_REWARDS: Record<string, { gold?: number; potions?: number; label: string }> = {
+  [ALPHA_ID]: { gold: 8, label: 'A matilha deixa a rota mais segura.' },
+  [CAPTAIN_ID]: { gold: 15, potions: 1, label: 'O saque do capitao vira preparo para a ponte.' },
+  [TROLL_ID]: { gold: 25, label: 'A Estrada Velha foi fechada como campanha.' },
+};
 
 const createNewPlayer = (): PlayerState => ({
   name: 'Guerreiro',
@@ -23,6 +40,14 @@ const createNewPlayer = (): PlayerState => ({
   inventory: [],
 });
 
+const createNewProgress = (): RegionProgress => ({
+  clearedCommons: [],
+  alphaDefeated: false,
+  captainDefeated: false,
+  trollDefeated: false,
+  repeatVictories: {},
+});
+
 function randInt(min: number, max: number) {
   return Math.floor(Math.random() * (max - min + 1)) + min;
 }
@@ -31,6 +56,11 @@ function calcDamage(attack: number, defense: number): number {
   const base = Math.max(1, attack - defense);
   const variance = Math.max(1, Math.floor(base * 0.2));
   return base + randInt(-variance, variance);
+}
+
+interface SaveData {
+  player: PlayerState;
+  regionProgress: RegionProgress;
 }
 
 interface GameContextType {
@@ -43,6 +73,7 @@ interface GameContextType {
   totalAttack: number;
   totalDefense: number;
   startCombat: (enemy?: EnemyData) => void;
+  startEncounterIntro: (enemy: EnemyData) => void;
   combatAttack: () => void;
   combatDefend: () => void;
   combatHeavyAttack: () => void;
@@ -60,13 +91,94 @@ export const useGame = () => {
   return ctx;
 };
 
+const initMechanic = (enemy: Enemy): MechanicState | null => {
+  if (!enemy.mechanic) return null;
+
+  switch (enemy.mechanic.type) {
+    case 'howl':
+      return {
+        type: 'howl',
+        triggered: false,
+        bonusTurnsLeft: 0,
+        bonusAttack: enemy.mechanic.bonusAttack || 4,
+      };
+    case 'guard_stance':
+      return {
+        type: 'guard_stance',
+        triggered: false,
+        guardActive: false,
+      };
+    case 'telegraphed_strike':
+      return {
+        type: 'telegraphed_strike',
+        triggered: false,
+        isCharging: false,
+        hardenedTriggered: false,
+        hardenedTurnsLeft: 0,
+        hardenedDamageMultiplier: enemy.mechanic.hardenedDamageMultiplier || 0.55,
+      };
+    default:
+      return null;
+  }
+};
+
+const isTrollHardened = (combat: CombatState) =>
+  combat.mechanic?.type === 'telegraphed_strike' && (combat.mechanic.hardenedTurnsLeft || 0) > 0;
+
+const applyPlayerDamageToEnemy = (combat: CombatState, rawDamage: number) => {
+  if (!isTrollHardened(combat)) {
+    return { damage: rawDamage, note: '' };
+  }
+
+  return {
+    damage: Math.max(1, Math.floor(rawDamage * (combat.mechanic?.hardenedDamageMultiplier || 0.55))),
+    note: ' O casco absorve parte do impacto.',
+  };
+};
+
+const getRepeatRewardMultiplier = (enemyType: Enemy['type'], victories: number) => {
+  if (victories <= 0) return 1;
+  if (enemyType === 'elite') {
+    return victories === 1 ? 0.45 : 0.2;
+  }
+
+  if (enemyType === 'common') {
+    return victories === 1 ? 0.7 : 0.4;
+  }
+
+  return victories === 1 ? 0.3 : 0.1;
+};
+
+const getRepeatLootChance = (enemyType: Enemy['type'], victories: number) => {
+  if (victories <= 0) return enemyType === 'common' ? 0.4 : enemyType === 'elite' ? 0.22 : 0.1;
+  if (enemyType === 'elite') return victories === 1 ? 0.06 : 0.02;
+  if (enemyType === 'common') return victories === 1 ? 0.22 : 0.12;
+  return 0;
+};
+
 export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [state, setState] = useState<GameState>(() => ({
-    screen: 'title',
-    player: createNewPlayer(),
-    hasSave: !!localStorage.getItem(SAVE_KEY),
-    combat: null,
-  }));
+  const [state, setState] = useState<GameState>(() => {
+    const saved = localStorage.getItem(SAVE_KEY);
+    let hasSave = false;
+
+    if (saved) {
+      try {
+        JSON.parse(saved);
+        hasSave = true;
+      } catch {
+        hasSave = false;
+      }
+    }
+
+    return {
+      screen: 'title',
+      player: createNewPlayer(),
+      hasSave,
+      combat: null,
+      regionProgress: createNewProgress(),
+      pendingEnemy: null,
+    };
+  });
 
   const navigate = useCallback((screen: GameScreen) => {
     setState(prev => ({ ...prev, screen }));
@@ -74,54 +186,68 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const newGame = useCallback(() => {
     const player = createNewPlayer();
-    setState({ screen: 'village', player, hasSave: false, combat: null });
-    localStorage.setItem(SAVE_KEY, JSON.stringify(player));
+    const regionProgress = createNewProgress();
+    const freshState: GameState = {
+      screen: 'village',
+      player,
+      hasSave: false,
+      combat: null,
+      regionProgress,
+      pendingEnemy: null,
+    };
+
+    setState(freshState);
+    localStorage.setItem(SAVE_KEY, JSON.stringify({ player, regionProgress }));
   }, []);
 
   const continueGame = useCallback(() => {
     const saved = localStorage.getItem(SAVE_KEY);
-    if (saved) {
-      const player = JSON.parse(saved) as PlayerState;
-      setState({ screen: 'village', player, hasSave: true, combat: null });
+    if (!saved) return;
+
+    try {
+      const data = JSON.parse(saved) as SaveData;
+      setState({
+        screen: 'village',
+        player: data.player,
+        hasSave: true,
+        combat: null,
+        regionProgress: {
+          ...createNewProgress(),
+          ...(data.regionProgress || {}),
+          repeatVictories: data.regionProgress?.repeatVictories || {},
+        },
+        pendingEnemy: null,
+      });
+    } catch {
+      // ignore invalid save
     }
   }, []);
 
   const updatePlayer = useCallback((updates: Partial<PlayerState>) => {
-    setState(prev => {
-      const newPlayer = { ...prev.player, ...updates };
-      return { ...prev, player: newPlayer };
-    });
+    setState(prev => ({ ...prev, player: { ...prev.player, ...updates } }));
   }, []);
 
   const saveGame = useCallback(() => {
-    localStorage.setItem(SAVE_KEY, JSON.stringify(state.player));
+    const data: SaveData = { player: state.player, regionProgress: state.regionProgress };
+    localStorage.setItem(SAVE_KEY, JSON.stringify(data));
     setState(prev => ({ ...prev, hasSave: true }));
-  }, [state.player]);
+  }, [state.player, state.regionProgress]);
 
   useEffect(() => {
-    if (state.screen !== 'title') {
-      localStorage.setItem(SAVE_KEY, JSON.stringify(state.player));
-    }
-  }, [state.player, state.screen]);
+    if (state.screen === 'title') return;
+    const data: SaveData = { player: state.player, regionProgress: state.regionProgress };
+    localStorage.setItem(SAVE_KEY, JSON.stringify(data));
+  }, [state.player, state.regionProgress, state.screen]);
 
   const totalAttack = state.player.baseAttack + state.player.equippedWeapon.bonus;
   const totalDefense = state.player.baseDefense + state.player.equippedArmor.bonus + state.player.equippedShield.bonus;
 
-  // ─── Combat ───────────────────────────────────────────
+  const startEncounterIntro = useCallback((enemy: EnemyData) => {
+    setState(prev => ({ ...prev, screen: 'encounter_intro', pendingEnemy: enemy }));
+  }, []);
 
   const startCombat = useCallback((enemy?: EnemyData) => {
-    const commons = ENEMIES.filter(e => e.type === 'common');
-    const elites = ENEMIES.filter(e => e.type === 'elite');
-    const bosses = ENEMIES.filter(e => e.type === 'boss');
-    let chosen: EnemyData;
-    if (enemy) {
-      chosen = enemy;
-    } else {
-      const roll = Math.random();
-      if (roll < 0.65) chosen = commons[randInt(0, commons.length - 1)];
-      else if (roll < 0.90) chosen = elites[randInt(0, elites.length - 1)];
-      else chosen = bosses[randInt(0, bosses.length - 1)];
-    }
+    const chosen = enemy || ENEMIES[0];
     const combat: CombatState = {
       enemy: { ...chosen },
       enemyHp: chosen.maxHp,
@@ -131,59 +257,203 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
       goldEarned: 0,
       xpEarned: 0,
       lootEarned: null,
+      bonusGoldEarned: 0,
+      bonusPotionsEarned: 0,
+      mechanic: initMechanic(chosen),
+      turnCount: 0,
     };
-    setState(prev => ({ ...prev, screen: 'combat', combat }));
+
+    setState(prev => ({ ...prev, screen: 'combat', combat, pendingEnemy: null }));
   }, []);
 
-  const doEnemyTurn = (prev: GameState, tAtk: number, tDef: number): GameState => {
-    if (!prev.combat || prev.combat.enemyHp <= 0) return prev;
-    const { combat, player } = prev;
-    const enemyDmg = calcDamage(combat.enemy.attack, tDef);
-    const reducedDmg = combat.isDefending ? Math.max(1, Math.floor(enemyDmg * 0.5)) : enemyDmg;
-    const newHp = Math.max(0, player.hp - reducedDmg);
-    const defText = combat.isDefending ? ' (bloqueado!)' : '';
-    const log = [...combat.log, `${combat.enemy.name} ataca e causa ${reducedDmg} de dano${defText}.`];
+  const processMechanicPreTurn = (combat: CombatState): CombatState => {
+    if (!combat.mechanic) return combat;
 
-    if (newHp <= 0) {
-      const goldLost = Math.floor(player.gold * 0.15);
+    const mechanic = { ...combat.mechanic };
+    const log = [...combat.log];
+    const def = combat.enemy.mechanic;
+
+    if (mechanic.type === 'howl' && !mechanic.triggered && combat.turnCount === 2) {
+      mechanic.triggered = true;
+      mechanic.bonusTurnsLeft = def?.bonusTurns || 2;
+      log.push(`O ${combat.enemy.name} uiva. A matilha fecha o cerco, seu ataque sobe e fugir fica bem mais dificil!`);
+    }
+
+    if (mechanic.type === 'guard_stance' && !mechanic.triggered && combat.turnCount === 1) {
+      mechanic.triggered = true;
+      mechanic.guardActive = true;
+      log.push(`${combat.enemy.name} entra em postura de saque. O proximo golpe vira punicao.`);
+    }
+
+    if (mechanic.type === 'telegraphed_strike' && combat.turnCount >= 2 && combat.turnCount % 3 === 2) {
+      mechanic.isCharging = true;
+      log.push(`${combat.enemy.name} ergue o tronco acima da cabeca. DEFENDA-SE!`);
+    }
+
+    if (
+      mechanic.type === 'telegraphed_strike' &&
+      !mechanic.hardenedTriggered &&
+      combat.enemyHp <= Math.floor(combat.enemy.maxHp * (def?.hardenedThreshold || 0.5))
+    ) {
+      mechanic.hardenedTriggered = true;
+      mechanic.hardenedTurnsLeft = def?.hardenedTurns || 2;
+      log.push(`${combat.enemy.name} endurece o casco. Por alguns turnos, seus golpes rendem menos.`);
+    }
+
+    return { ...combat, mechanic, log };
+  };
+
+  const getEffectiveEnemyAttack = (combat: CombatState) => {
+    let attack = combat.enemy.attack;
+    const mechanic = combat.mechanic;
+
+    if (!mechanic) return attack;
+
+    if (mechanic.type === 'howl' && (mechanic.bonusTurnsLeft || 0) > 0) {
+      attack += mechanic.bonusAttack || 4;
+    }
+
+    if (mechanic.type === 'guard_stance' && mechanic.guardActive) {
+      attack = Math.floor(attack * (combat.enemy.mechanic?.counterMultiplier || 1.8));
+    }
+
+    if (mechanic.type === 'telegraphed_strike' && mechanic.isCharging) {
+      attack = Math.floor(attack * (combat.enemy.mechanic?.heavyDamageMultiplier || 2.5));
+    }
+
+    return attack;
+  };
+
+  const processMechanicPostTurn = (mechanic: MechanicState): MechanicState => {
+    const next = { ...mechanic };
+
+    if (next.type === 'howl' && (next.bonusTurnsLeft || 0) > 0) {
+      next.bonusTurnsLeft = (next.bonusTurnsLeft || 0) - 1;
+    }
+
+    if (next.type === 'guard_stance' && next.guardActive) {
+      next.guardActive = false;
+    }
+
+    if (next.type === 'telegraphed_strike' && next.isCharging) {
+      next.isCharging = false;
+    }
+
+    if (next.type === 'telegraphed_strike' && (next.hardenedTurnsLeft || 0) > 0) {
+      next.hardenedTurnsLeft = (next.hardenedTurnsLeft || 0) - 1;
+    }
+
+    return next;
+  };
+
+  const doEnemyTurn = (prev: GameState, playerAttack: number, playerDefense: number): GameState => {
+    if (!prev.combat || prev.combat.enemyHp <= 0) return prev;
+
+    const combat = processMechanicPreTurn(prev.combat);
+    const effectiveAttack = getEffectiveEnemyAttack(combat);
+    const damage = calcDamage(effectiveAttack, playerDefense);
+    const heavyHit = combat.mechanic?.type === 'telegraphed_strike' && combat.mechanic.isCharging;
+    const defendMultiplier = heavyHit ? 0.2 : 0.45;
+    const reducedDamage = combat.isDefending ? Math.max(1, Math.floor(damage * defendMultiplier)) : damage;
+    const nextHp = Math.max(0, prev.player.hp - reducedDamage);
+    const hitSuffix = heavyHit ? ' O golpe explode com violencia brutal.' : '';
+    const blockSuffix = combat.isDefending ? ' Voce amortece parte do impacto.' : '';
+    const log = [...combat.log, `${combat.enemy.name} ataca e causa ${reducedDamage} de dano.${blockSuffix}${hitSuffix}`];
+    const mechanic = combat.mechanic ? processMechanicPostTurn(combat.mechanic) : null;
+
+    if (nextHp <= 0) {
+      const goldLost = Math.floor(prev.player.gold * 0.15);
       return {
         ...prev,
         screen: 'defeat',
-        player: { ...player, hp: 0 },
-        combat: { ...combat, log: [...log, 'Você foi derrotado...'], isDefending: false, goldEarned: goldLost },
+        player: { ...prev.player, hp: 0 },
+        combat: {
+          ...combat,
+          log: [...log, 'Voce foi derrotado...'],
+          isDefending: false,
+          goldEarned: goldLost,
+          mechanic,
+          turnCount: combat.turnCount + 1,
+        },
       };
     }
+
     return {
       ...prev,
-      player: { ...player, hp: newHp },
-      combat: { ...combat, log, isDefending: false },
+      player: { ...prev.player, hp: nextHp },
+      combat: {
+        ...combat,
+        log,
+        isDefending: false,
+        mechanic,
+        turnCount: combat.turnCount + 1,
+      },
     };
   };
 
   const doCheckVictory = (prev: GameState): GameState => {
     if (!prev.combat || prev.combat.enemyHp > 0) return prev;
-    const { combat } = prev;
-    const goldEarned = randInt(combat.enemy.goldReward[0], combat.enemy.goldReward[1]);
-    const xpEarned = combat.enemy.xpReward;
-    const lootEarned = Math.random() < 0.4 ? LOOT_TABLE[randInt(0, LOOT_TABLE.length - 1)] : null;
+
+    const combat = prev.combat;
+    const repeatVictories = prev.regionProgress.repeatVictories[combat.enemy.id] || 0;
+    const repeatMultiplier = getRepeatRewardMultiplier(combat.enemy.type, repeatVictories);
+    const rolledGold = randInt(combat.enemy.goldReward[0], combat.enemy.goldReward[1]);
+    const goldEarned = Math.max(1, Math.floor(rolledGold * repeatMultiplier));
+    const xpEarned = Math.max(1, Math.floor(combat.enemy.xpReward * repeatMultiplier));
+    const isFirstAlphaKill = combat.enemy.id === ALPHA_ID && !prev.regionProgress.alphaDefeated;
+    const isFirstCaptainKill = combat.enemy.id === CAPTAIN_ID && !prev.regionProgress.captainDefeated;
+    const isFirstTrollKill = combat.enemy.id === TROLL_ID && !prev.regionProgress.trollDefeated;
+    const campaignReward =
+      (isFirstAlphaKill || isFirstCaptainKill || isFirstTrollKill) ? CAMPAIGN_REWARDS[combat.enemy.id] : undefined;
+    const lootChance = getRepeatLootChance(combat.enemy.type, repeatVictories);
+    const lootEarned: LootItem | null =
+      Math.random() < lootChance ? LOOT_TABLE[randInt(0, LOOT_TABLE.length - 1)] : null;
+    const victoryMessage = repeatVictories > 0
+      ? combat.enemy.type === 'elite'
+        ? `${combat.enemy.name} foi derrotado, mas elites repetidas rendem bem menos.`
+        : `${combat.enemy.name} foi derrotado, mas a recompensa caiu por repeticao.`
+      : `${combat.enemy.name} foi derrotado!`;
+    const bonusMessage = campaignReward
+      ? `${campaignReward.label}${campaignReward.gold ? ` +${campaignReward.gold} ouro.` : ''}${campaignReward.potions ? ` +${campaignReward.potions} pocao.` : ''}`
+      : null;
+
     return {
       ...prev,
       screen: 'victory',
-      combat: { ...combat, goldEarned, xpEarned, lootEarned, log: [...combat.log, `${combat.enemy.name} foi derrotado!`] },
+      combat: {
+        ...combat,
+        goldEarned,
+        xpEarned,
+        lootEarned,
+        bonusGoldEarned: campaignReward?.gold || 0,
+        bonusPotionsEarned: campaignReward?.potions || 0,
+        log: [
+          ...combat.log,
+          victoryMessage,
+          ...(bonusMessage ? [bonusMessage] : []),
+        ],
+      },
     };
   };
 
   const combatAttack = useCallback(() => {
     setState(prev => {
       if (!prev.combat) return prev;
-      const tAtk = prev.player.baseAttack + prev.player.equippedWeapon.bonus;
-      const tDef = prev.player.baseDefense + prev.player.equippedArmor.bonus + prev.player.equippedShield.bonus;
-      const dmg = calcDamage(tAtk, prev.combat.enemy.defense);
-      const newEnemyHp = Math.max(0, prev.combat.enemyHp - dmg);
-      const log = [...prev.combat.log, `Você ataca e causa ${dmg} de dano.`];
-      let next: GameState = { ...prev, combat: { ...prev.combat, enemyHp: newEnemyHp, log, isDefending: false } };
+
+      const playerAttack = prev.player.baseAttack + prev.player.equippedWeapon.bonus;
+      const playerDefense = prev.player.baseDefense + prev.player.equippedArmor.bonus + prev.player.equippedShield.bonus;
+      const rawDamage = calcDamage(playerAttack, prev.combat.enemy.defense);
+      const result = applyPlayerDamageToEnemy(prev.combat, rawDamage);
+      const enemyHp = Math.max(0, prev.combat.enemyHp - result.damage);
+      const log = [...prev.combat.log, `Voce ataca e causa ${result.damage} de dano.${result.note}`];
+
+      let next: GameState = {
+        ...prev,
+        combat: { ...prev.combat, enemyHp, log, isDefending: false },
+      };
+
       next = doCheckVictory(next);
-      if (next.screen !== 'victory') next = doEnemyTurn(next, tAtk, tDef);
+      if (next.screen !== 'victory') next = doEnemyTurn(next, playerAttack, playerDefense);
       return next;
     });
   }, []);
@@ -191,29 +461,46 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const combatDefend = useCallback(() => {
     setState(prev => {
       if (!prev.combat) return prev;
-      const tAtk = prev.player.baseAttack + prev.player.equippedWeapon.bonus;
-      const tDef = prev.player.baseDefense + prev.player.equippedArmor.bonus + prev.player.equippedShield.bonus;
-      const log = [...prev.combat.log, 'Você se defende, preparado para o próximo golpe.'];
-      let next: GameState = { ...prev, combat: { ...prev.combat, log, isDefending: true } };
-      next = doEnemyTurn(next, tAtk, tDef);
-      return next;
+
+      const playerAttack = prev.player.baseAttack + prev.player.equippedWeapon.bonus;
+      const playerDefense = prev.player.baseDefense + prev.player.equippedArmor.bonus + prev.player.equippedShield.bonus;
+      const log = [...prev.combat.log, 'Voce se defende e espera o proximo movimento.'];
+
+      return doEnemyTurn(
+        {
+          ...prev,
+          combat: { ...prev.combat, log, isDefending: true },
+        },
+        playerAttack,
+        playerDefense,
+      );
     });
   }, []);
 
   const combatHeavyAttack = useCallback(() => {
     setState(prev => {
       if (!prev.combat || prev.combat.heavyAttackUses <= 0) return prev;
-      const tAtk = prev.player.baseAttack + prev.player.equippedWeapon.bonus;
-      const tDef = prev.player.baseDefense + prev.player.equippedArmor.bonus + prev.player.equippedShield.bonus;
-      const dmg = calcDamage(Math.floor(tAtk * 1.6), prev.combat.enemy.defense);
-      const newEnemyHp = Math.max(0, prev.combat.enemyHp - dmg);
-      const log = [...prev.combat.log, `Golpe Pesado! Você causa ${dmg} de dano!`];
+
+      const playerAttack = prev.player.baseAttack + prev.player.equippedWeapon.bonus;
+      const playerDefense = prev.player.baseDefense + prev.player.equippedArmor.bonus + prev.player.equippedShield.bonus;
+      const rawDamage = calcDamage(Math.floor(playerAttack * 1.6), prev.combat.enemy.defense);
+      const result = applyPlayerDamageToEnemy(prev.combat, rawDamage);
+      const enemyHp = Math.max(0, prev.combat.enemyHp - result.damage);
+      const log = [...prev.combat.log, `Golpe Pesado! Voce causa ${result.damage} de dano!${result.note}`];
+
       let next: GameState = {
         ...prev,
-        combat: { ...prev.combat, enemyHp: newEnemyHp, log, isDefending: false, heavyAttackUses: prev.combat.heavyAttackUses - 1 },
+        combat: {
+          ...prev.combat,
+          enemyHp,
+          log,
+          isDefending: false,
+          heavyAttackUses: prev.combat.heavyAttackUses - 1,
+        },
       };
+
       next = doCheckVictory(next);
-      if (next.screen !== 'victory') next = doEnemyTurn(next, tAtk, tDef);
+      if (next.screen !== 'victory') next = doEnemyTurn(next, playerAttack, playerDefense);
       return next;
     });
   }, []);
@@ -221,86 +508,149 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const combatPotion = useCallback(() => {
     setState(prev => {
       if (!prev.combat || prev.player.potions <= 0) return prev;
-      const tAtk = prev.player.baseAttack + prev.player.equippedWeapon.bonus;
-      const tDef = prev.player.baseDefense + prev.player.equippedArmor.bonus + prev.player.equippedShield.bonus;
+
+      const playerAttack = prev.player.baseAttack + prev.player.equippedWeapon.bonus;
+      const playerDefense = prev.player.baseDefense + prev.player.equippedArmor.bonus + prev.player.equippedShield.bonus;
       const healed = Math.min(POTION_HEAL, prev.player.maxHp - prev.player.hp);
-      const newHp = prev.player.hp + healed;
-      const log = [...prev.combat.log, `Você usa uma Poção de Vida e recupera ${healed} HP.`];
-      let next: GameState = {
-        ...prev,
-        player: { ...prev.player, hp: newHp, potions: prev.player.potions - 1 },
-        combat: { ...prev.combat, log, isDefending: false },
-      };
-      next = doEnemyTurn(next, tAtk, tDef);
-      return next;
+      const nextHp = prev.player.hp + healed;
+      const log = [...prev.combat.log, `Voce usa uma Pocao de Vida e recupera ${healed} HP.`];
+
+      return doEnemyTurn(
+        {
+          ...prev,
+          player: { ...prev.player, hp: nextHp, potions: prev.player.potions - 1 },
+          combat: { ...prev.combat, log, isDefending: false },
+        },
+        playerAttack,
+        playerDefense,
+      );
     });
   }, []);
 
   const combatFlee = useCallback(() => {
     setState(prev => {
       if (!prev.combat) return prev;
-      const chance = prev.combat.enemy.fleeChance;
-      if (Math.random() < chance) {
-        return { ...prev, screen: 'village' as GameScreen, combat: null };
+      if (prev.combat.enemy.type === 'boss') return prev;
+
+      let fleeChance = prev.combat.enemy.fleeChance;
+      if (prev.combat.mechanic?.type === 'howl' && (prev.combat.mechanic.bonusTurnsLeft || 0) > 0) {
+        fleeChance *= 0.25;
       }
-      const tAtk = prev.player.baseAttack + prev.player.equippedWeapon.bonus;
-      const tDef = prev.player.baseDefense + prev.player.equippedArmor.bonus + prev.player.equippedShield.bonus;
-      const log = [...prev.combat.log, 'Você tenta fugir, mas falha!'];
-      let next: GameState = { ...prev, combat: { ...prev.combat, log, isDefending: false } };
-      next = doEnemyTurn(next, tAtk, tDef);
-      return next;
+
+      if (Math.random() < fleeChance) {
+        return { ...prev, screen: 'region', combat: null };
+      }
+
+      const playerAttack = prev.player.baseAttack + prev.player.equippedWeapon.bonus;
+      const playerDefense = prev.player.baseDefense + prev.player.equippedArmor.bonus + prev.player.equippedShield.bonus;
+      const log = [...prev.combat.log, 'Voce tenta fugir, mas falha!'];
+
+      return doEnemyTurn(
+        {
+          ...prev,
+          combat: { ...prev.combat, log, isDefending: false },
+        },
+        playerAttack,
+        playerDefense,
+      );
     });
   }, []);
 
   const levelUp = (player: PlayerState): PlayerState => {
-    let p = { ...player };
-    while (p.xp >= p.xpToNext) {
-      p.xp -= p.xpToNext;
-      p.level += 1;
-      p.maxHp += 4;
-      p.hp = p.maxHp;
-      p.baseAttack += 1;
-      p.baseDefense += 1;
-      p.xpToNext = Math.floor(p.xpToNext * 1.4);
+    let nextPlayer = { ...player };
+
+    while (nextPlayer.xp >= nextPlayer.xpToNext) {
+      nextPlayer.xp -= nextPlayer.xpToNext;
+      nextPlayer.level += 1;
+      nextPlayer.maxHp += 4;
+      nextPlayer.hp = nextPlayer.maxHp;
+      nextPlayer.baseAttack += 1;
+      nextPlayer.baseDefense += 1;
+      nextPlayer.xpToNext = Math.floor(nextPlayer.xpToNext * 1.4);
     }
-    return p;
+
+    return nextPlayer;
   };
 
   const claimVictory = useCallback(() => {
     setState(prev => {
       if (!prev.combat) return prev;
-      const { goldEarned, xpEarned, lootEarned } = prev.combat;
-      let player = {
+
+      const enemyId = prev.combat.enemy.id;
+      let player: PlayerState = {
         ...prev.player,
-        gold: prev.player.gold + goldEarned,
-        xp: prev.player.xp + xpEarned,
-        inventory: lootEarned ? [...prev.player.inventory, lootEarned] : prev.player.inventory,
+        gold: prev.player.gold + prev.combat.goldEarned + prev.combat.bonusGoldEarned,
+        xp: prev.player.xp + prev.combat.xpEarned,
+        potions: prev.player.potions + prev.combat.bonusPotionsEarned,
+        inventory: prev.combat.lootEarned
+          ? [...prev.player.inventory, prev.combat.lootEarned]
+          : prev.player.inventory,
       };
+
       player = levelUp(player);
-      return { ...prev, screen: 'village' as GameScreen, player, combat: null };
+
+      const regionProgress: RegionProgress = { ...prev.regionProgress };
+      regionProgress.repeatVictories = {
+        ...regionProgress.repeatVictories,
+        [enemyId]: (regionProgress.repeatVictories[enemyId] || 0) + 1,
+      };
+
+      if (prev.combat.enemy.type === 'common' && !regionProgress.clearedCommons.includes(enemyId)) {
+        regionProgress.clearedCommons = [...regionProgress.clearedCommons, enemyId];
+      }
+      if (enemyId === ALPHA_ID) regionProgress.alphaDefeated = true;
+      if (enemyId === CAPTAIN_ID) regionProgress.captainDefeated = true;
+      if (enemyId === TROLL_ID) regionProgress.trollDefeated = true;
+
+      return {
+        ...prev,
+        screen: 'region',
+        player,
+        combat: null,
+        regionProgress,
+      };
     });
   }, []);
 
   const acceptDefeat = useCallback(() => {
     setState(prev => {
       if (!prev.combat) return prev;
-      const goldLost = prev.combat.goldEarned;
-      const player = {
-        ...prev.player,
-        hp: prev.player.maxHp,
-        gold: Math.max(0, prev.player.gold - goldLost),
+
+      return {
+        ...prev,
+        screen: 'village',
+        player: {
+          ...prev.player,
+          hp: prev.player.maxHp,
+          gold: Math.max(0, prev.player.gold - prev.combat.goldEarned),
+        },
+        combat: null,
       };
-      return { ...prev, screen: 'village' as GameScreen, player, combat: null };
     });
   }, []);
 
   return (
-    <GameContext.Provider value={{
-      state, navigate, newGame, continueGame, updatePlayer, saveGame,
-      totalAttack, totalDefense,
-      startCombat, combatAttack, combatDefend, combatHeavyAttack, combatPotion, combatFlee,
-      claimVictory, acceptDefeat,
-    }}>
+    <GameContext.Provider
+      value={{
+        state,
+        navigate,
+        newGame,
+        continueGame,
+        updatePlayer,
+        saveGame,
+        totalAttack,
+        totalDefense,
+        startCombat,
+        startEncounterIntro,
+        combatAttack,
+        combatDefend,
+        combatHeavyAttack,
+        combatPotion,
+        combatFlee,
+        claimVictory,
+        acceptDefeat,
+      }}
+    >
       {children}
     </GameContext.Provider>
   );

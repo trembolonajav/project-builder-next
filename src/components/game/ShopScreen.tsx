@@ -1,31 +1,36 @@
 import { useGame } from '@/contexts/GameContext';
-import { ArrowLeft, Coins, Sword, Shield, ShieldCheck, Heart } from 'lucide-react';
-import { WEAPONS, ARMORS, SHIELDS, POTION_PRICE, POTION_HEAL, POTION_IMAGE } from '@/data/items';
-import { Equipment } from '@/types/game';
+import { ArrowLeft, Coins, Heart, Shield, ShieldCheck, Sword } from 'lucide-react';
+import { ARMORS, POTION_HEAL, POTION_IMAGE, POTION_PRICE, SHIELDS, WEAPONS } from '@/data/items';
+import { Equipment, LootItem } from '@/types/game';
 
 const ShopScreen = () => {
   const { state, navigate, updatePlayer, totalAttack, totalDefense } = useGame();
   const { player } = state;
 
+  const isOwned = (item: Equipment) => {
+    const equipped =
+      item.type === 'weapon'
+        ? player.equippedWeapon.id === item.id
+        : item.type === 'armor'
+          ? player.equippedArmor.id === item.id
+          : player.equippedShield.id === item.id;
+
+    const inInventory = player.inventory.some(entry => 'type' in entry && entry.id === item.id);
+    return equipped || inInventory;
+  };
+
   const buyEquipment = (item: Equipment) => {
-    if (player.gold < item.price) return;
-    const updates: Partial<typeof player> = { gold: player.gold - item.price };
-    if (item.type === 'weapon') updates.equippedWeapon = item;
-    else if (item.type === 'armor') updates.equippedArmor = item;
-    else if (item.type === 'shield') updates.equippedShield = item;
-    updatePlayer(updates);
+    if (player.gold < item.price || isOwned(item)) return;
+
+    updatePlayer({
+      gold: player.gold - item.price,
+      inventory: [...player.inventory, item],
+    });
   };
 
   const buyPotion = () => {
     if (player.gold < POTION_PRICE) return;
     updatePlayer({ gold: player.gold - POTION_PRICE, potions: player.potions + 1 });
-  };
-
-  const isOwned = (item: Equipment) => {
-    if (item.type === 'weapon') return player.equippedWeapon.id === item.id;
-    if (item.type === 'armor') return player.equippedArmor.id === item.id;
-    if (item.type === 'shield') return player.equippedShield.id === item.id;
-    return false;
   };
 
   return (
@@ -45,32 +50,53 @@ const ShopScreen = () => {
 
       <main className="flex-1 overflow-y-auto p-4 z-20">
         <div className="max-w-lg mx-auto space-y-6">
-          <h2 className="font-pixel text-sm text-primary text-center mb-4">🏪 MERCADOR</h2>
+          <h2 className="font-pixel text-sm text-primary text-center mb-4">MERCADOR</h2>
 
-          <ShopSection title="⚔ ARMAS" icon={<Sword className="w-4 h-4 text-accent" />}>
-            {WEAPONS.filter(w => w.price > 0).map(w => (
-              <ShopItem key={w.id} item={w} owned={isOwned(w)} canAfford={player.gold >= w.price} onBuy={() => buyEquipment(w)} statLabel={`+${w.bonus} ATK`} />
+          <ShopSection title="ARMAS" icon={<Sword className="w-4 h-4 text-accent" />}>
+            {WEAPONS.filter(item => item.price > 0).map(item => (
+              <ShopItem
+                key={item.id}
+                item={item}
+                owned={isOwned(item)}
+                canAfford={player.gold >= item.price}
+                onBuy={() => buyEquipment(item)}
+                statLabel={`+${item.bonus} ATK`}
+              />
             ))}
           </ShopSection>
 
-          <ShopSection title="🛡 ARMADURAS" icon={<ShieldCheck className="w-4 h-4 text-xp-blue" />}>
-            {ARMORS.filter(a => a.price > 0).map(a => (
-              <ShopItem key={a.id} item={a} owned={isOwned(a)} canAfford={player.gold >= a.price} onBuy={() => buyEquipment(a)} statLabel={`+${a.bonus} DEF`} />
+          <ShopSection title="ARMADURAS" icon={<ShieldCheck className="w-4 h-4 text-xp-blue" />}>
+            {ARMORS.filter(item => item.price > 0).map(item => (
+              <ShopItem
+                key={item.id}
+                item={item}
+                owned={isOwned(item)}
+                canAfford={player.gold >= item.price}
+                onBuy={() => buyEquipment(item)}
+                statLabel={`+${item.bonus} DEF`}
+              />
             ))}
           </ShopSection>
 
-          <ShopSection title="🔰 ESCUDOS" icon={<Shield className="w-4 h-4 text-xp-blue" />}>
-            {SHIELDS.filter(s => s.price > 0).map(s => (
-              <ShopItem key={s.id} item={s} owned={isOwned(s)} canAfford={player.gold >= s.price} onBuy={() => buyEquipment(s)} statLabel={`+${s.bonus} DEF`} />
+          <ShopSection title="ESCUDOS" icon={<Shield className="w-4 h-4 text-xp-blue" />}>
+            {SHIELDS.filter(item => item.price > 0).map(item => (
+              <ShopItem
+                key={item.id}
+                item={item}
+                owned={isOwned(item)}
+                canAfford={player.gold >= item.price}
+                onBuy={() => buyEquipment(item)}
+                statLabel={`+${item.bonus} DEF`}
+              />
             ))}
           </ShopSection>
 
-          <ShopSection title="🧪 CONSUMÍVEIS" icon={<Heart className="w-4 h-4 text-hp-green" />}>
+          <ShopSection title="CONSUMIVEIS" icon={<Heart className="w-4 h-4 text-hp-green" />}>
             <div className="flex items-center justify-between p-3 pixel-border bg-card">
               <div className="flex items-center gap-3 flex-1">
-                <img src={POTION_IMAGE} alt="Poção de Vida" className="w-10 h-10 object-contain pixelated" loading="lazy" />
+                <img src={POTION_IMAGE} alt="Pocao de Vida" className="w-10 h-10 object-contain pixelated" loading="lazy" />
                 <div>
-                  <span className="font-pixel text-[10px] text-foreground block">Poção de Vida</span>
+                  <span className="font-pixel text-[10px] text-foreground block">Pocao de Vida</span>
                   <span className="font-retro text-sm text-muted-foreground">Recupera {POTION_HEAL} HP</span>
                 </div>
               </div>
@@ -87,9 +113,12 @@ const ShopScreen = () => {
             </div>
           </ShopSection>
 
-          <div className="text-center pt-2">
+          <div className="pixel-border bg-card/70 p-3 text-center">
             <p className="font-retro text-sm text-muted-foreground">
-              ⚔ {totalAttack} ATK &nbsp; 🛡 {totalDefense} DEF
+              Equipamentos comprados vao para o inventario. Voce decide depois o que equipar ou vender.
+            </p>
+            <p className="font-retro text-sm text-muted-foreground mt-2">
+              ATK {totalAttack} | DEF {totalDefense}
             </p>
           </div>
         </div>
@@ -108,32 +137,39 @@ const ShopSection = ({ title, icon, children }: { title: string; icon: React.Rea
   </div>
 );
 
-const ShopItem = ({ item, owned, canAfford, onBuy, statLabel }: {
-  item: Equipment; owned: boolean; canAfford: boolean; onBuy: () => void; statLabel: string;
+const ShopItem = ({
+  item,
+  owned,
+  canAfford,
+  onBuy,
+  statLabel,
+}: {
+  item: Equipment;
+  owned: boolean;
+  canAfford: boolean;
+  onBuy: () => void;
+  statLabel: string;
 }) => (
-  <div className={`flex items-center justify-between p-3 pixel-border bg-card ${owned ? 'border-hp-green/50' : ''}`}>
+  <div className={`flex items-center justify-between p-3 pixel-border bg-card ${owned ? 'border-hp-green/40' : ''}`}>
     <div className="flex items-center gap-3 flex-1 min-w-0">
-      {item.image && (
-        <img src={item.image} alt={item.name} className="w-10 h-10 object-contain pixelated" loading="lazy" />
-      )}
+      {item.image && <img src={item.image} alt={item.name} className="w-10 h-10 object-contain pixelated" loading="lazy" />}
       <div className="min-w-0">
         <div className="flex items-center gap-2">
           <span className="font-pixel text-[10px] text-foreground">{item.name}</span>
-          {owned && <span className="font-pixel text-[8px] text-hp-green">EQUIPADO</span>}
+          {owned && <span className="font-pixel text-[8px] text-hp-green">JA TEM</span>}
         </div>
         <span className="font-retro text-sm text-muted-foreground block truncate">{item.description}</span>
         <span className="font-retro text-sm text-accent">{statLabel}</span>
       </div>
     </div>
-    {!owned && (
-      <button
-        onClick={onBuy}
-        disabled={!canAfford}
-        className="ml-3 px-3 py-1 pixel-border bg-card text-primary font-pixel text-[8px] hover:bg-muted transition-colors disabled:opacity-30 disabled:cursor-not-allowed whitespace-nowrap"
-      >
-        {item.price} <Coins className="w-3 h-3 inline text-gold" />
-      </button>
-    )}
+
+    <button
+      onClick={onBuy}
+      disabled={owned || !canAfford}
+      className="ml-3 px-3 py-1 pixel-border bg-card text-primary font-pixel text-[8px] hover:bg-muted transition-colors disabled:opacity-30 disabled:cursor-not-allowed whitespace-nowrap"
+    >
+      {owned ? 'COMPRADO' : <>{item.price} <Coins className="w-3 h-3 inline text-gold" /></>}
+    </button>
   </div>
 );
 
